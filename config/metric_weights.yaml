@@ -1,0 +1,12 @@
+weights:
+  # FHI = w1*AAS + w2*CIS + w3*ESS - w4*HCG
+  # Default weights — optimized via grid search in ablation experiments
+  # These will be updated after running ablation_study.py
+
+  w1_aas: 0.30   # Attribution Alignment Score weight
+  w2_cis: 0.35   # Causal Impact Score weight (highest — causal evidence)
+  w3_ess: 0.20   # Explanation Stability Score weight
+  w4_hcg: 0.15   # Hallucination Confidence Gap weight (subtracted)
+
+  # Normalization: clip FHI to [0, 1] after computation
+  clip_output: true

@@ -1,0 +1,26 @@
+model:
+  # Supported backends: "huggingface" | "ollama"
+  # Use "huggingface" for XAI (attention/gradient access)
+  # Use "ollama" for fast batch inference without XAI
+  backend: "huggingface"
+
+  # Gemma model ID — switch between 2b/7b here
+  # huggingface: "google/gemma-2b-it" or "google/gemma-7b-it"
+  # ollama:      "gemma:2b"           or "gemma:7b"
+  hf_model_id: "google/gemma-2b-it"
+  ollama_model_id: "gemma:2b"
+
+  # Generation parameters
+  max_new_tokens: 512
+  temperature: 0.7
+  do_sample: true
+  top_p: 0.9
+
+  # Set to "cuda", "mps" (Apple Silicon), or "cpu"
+  device: "cpu"
+
+  # Number of times to generate for ESS (stability)
+  n_stability_runs: 5
+
+  # Ollama server URL
+  ollama_base_url: "http://localhost:11434"

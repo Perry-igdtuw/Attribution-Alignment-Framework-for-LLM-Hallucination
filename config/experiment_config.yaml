@@ -1,0 +1,34 @@
+experiment:
+  name: "fhi_evaluation_v1"
+  seed: 42
+  output_dir: "results/"
+
+  # Dataset names (HuggingFace datasets hub IDs or local paths)
+  datasets:
+    factual_qa: "trivia_qa"           # TriviaQA — factual accuracy
+    adversarial: "halueval"           # HaluEval — hallucination benchmark
+    multihop: "musique"               # MuSiQue — multi-hop reasoning
+
+  # Samples per dataset split
+  n_samples: 200                      # Increase to 500–1000 for publication
+
+  # Attribution methods to run (comma-separated)
+  attribution_methods:
+    - "attention"
+    - "gradient"
+    - "shap"
+
+  # Perturbation strategies to run
+  perturbation_strategies:
+    - "mask"
+    - "replace"
+    - "delete"
+
+  # Top-K tokens for AAS computation
+  attribution_top_k: 10
+
+  # Hallucination detection threshold for FHI
+  fhi_threshold: 0.5
+
+  # MLflow tracking URI
+  mlflow_tracking_uri: "results/mlruns"
