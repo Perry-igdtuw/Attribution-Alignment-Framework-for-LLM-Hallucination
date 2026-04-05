@@ -1,139 +1,165 @@
-# Multi-Dimensional Evaluation of Explanation Faithfulness and Hallucination in LLMs
+# Attribution Alignment Framework for LLM Hallucination
 
-> **Research Project** | Explainable AI · LLM Hallucination Detection · Causal Perturbation Analysis
-
----
-
-## Overview
-
-This project proposes and evaluates the **Faithfulness-Hallucination Index (FHI)** — a novel composite metric for detecting hallucinations in Large Language Models by analyzing the alignment between model explanations and internal attribution signals.
-
-### Core Hypothesis
-Hallucinations arise when a model's explanation is **causally disconnected** from its actual reasoning process. FHI captures this disconnect through four complementary dimensions:
-
-| Metric | Description | Role in FHI |
-|---|---|---|
-| **AAS** | Attribution Alignment Score | Structural overlap between explanation and attribution |
-| **CIS** | Causal Impact Score | Output change when explanation tokens are removed |
-| **ESS** | Explanation Stability Score | Consistency across multiple generation runs |
-| **HCG** | Hallucination Confidence Gap | Confidence minus factual correctness |
-| **FHI** | Faithfulness-Hallucination Index | `w1·AAS + w2·CIS + w3·ESS - w4·HCG` |
+**A Multi-Dimensional Evaluation of Explanation Faithfulness and Hallucination in Large Language Models using Attribution Alignment and Causal Perturbation Analysis**
 
 ---
 
-## Setup
+## Abstract
 
-### 1. Python Environment
+Large Language Models (LLMs) often generate fluent but factually incorrect outputs — hallucinations. While self-generated explanations (Chain-of-Thought) can improve reasoning, they can also act as post-hoc rationalizations that don't faithfully represent the model's internal reasoning. This project introduces the **Faithfulness-Hallucination Index (FHI)**, a multi-dimensional evaluation framework that correlates explanation unfaithfulness with factual hallucination.
 
-```bash
-python -m venv venv
-source venv/bin/activate       # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
+## Core Hypothesis
 
-### 2. HuggingFace Login (for Gemma)
-
-Gemma requires accepting the license at https://huggingface.co/google/gemma-2b-it
-
-```bash
-pip install huggingface_hub
-huggingface-cli login           # Enter your HF token
-```
-
-### 3. (Optional) Ollama Setup
-
-For fast inference without XAI:
-```bash
-brew install ollama             # macOS
-ollama serve                    # Start server
-ollama pull gemma:2b            # Download model
-```
-
-### 4. Configure
-
-Edit `config/model_config.yaml`:
-- Set `backend: "huggingface"` (for XAI) or `"ollama"` (for fast inference)
-- Set `device: "cuda"` / `"mps"` / `"cpu"` based on your hardware
-- Set `hf_model_id: "google/gemma-2b-it"` or `"google/gemma-7b-it"`
+> Hallucinations arise from misalignment between model reasoning and generated explanations. Faithfulness is multi-dimensional and cannot be captured by a single metric. Combining attribution + causal perturbation provides better hallucination detection.
 
 ---
 
-## Running
+## Architecture
 
-```bash
-# Quick test (5 samples, validates the pipeline works)
-python experiments/run_pipeline.py --test
-
-# Full run on all datasets
-python experiments/run_pipeline.py
-
-# Specific dataset only
-python experiments/run_pipeline.py --dataset trivia_qa
-
-# Use Ollama backend (fast, no XAI internals)
-python experiments/run_pipeline.py --backend ollama
+```
+┌──────────────┐     ┌─────────────────┐     ┌──────────────────┐
+│  LLM Client  │────▶│  XAI Attribution│────▶│  Causal          │
+│  (Gemma-2B)  │     │  • Attention    │     │  Perturbation    │
+│              │     │  • Gradients    │     │  • Mask/Delete   │
+│  Answer +    │     │  • SHAP         │     │  • Replace       │
+│  Explanation │     │                 │     │  • Compare       │
+└──────────────┘     └─────────────────┘     └──────────────────┘
+       │                     │                        │
+       ▼                     ▼                        ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Metric Computation                          │
+│  AAS (Attribution Alignment)  ─┐                               │
+│  CIS (Causal Impact)          ─┼──▶  FHI = w₁·AAS + w₂·CIS   │
+│  ESS (Explanation Stability)  ─┤         + w₃·ESS - w₄·HCG   │
+│  HCG (Confidence Gap)         ─┘                               │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
----
+## Metrics
+
+| Metric | Full Name | What it Measures | Weight |
+|--------|-----------|------------------|--------|
+| **AAS** | Attribution Alignment Score | Overlap between explanation tokens and XAI-highlighted tokens | 0.25 |
+| **CIS** | Causal Impact Score | How much the answer changes when explanation words are removed | 0.35 |
+| **ESS** | Explanation Stability Score | Consistency of explanations across multiple runs | 0.25 |
+| **HCG** | Hallucination Confidence Gap | Penalty for high confidence on incorrect answers | 0.15 |
+
+## Results (Gemma-2B-it on HaluEval)
+
+```
+┏━━━━━━━━┳━━━━━━━━┳━━━━━━━━┓
+┃ Metric ┃ Mean   ┃ Std    ┃
+┡━━━━━━━━╇━━━━━━━━╇━━━━━━━━┩
+│ FHI    │ 0.3184 │ 0.0525 │
+│ AAS    │ 0.0956 │ 0.0751 │
+│ CIS    │ 0.4876 │ 0.1235 │
+│ ESS    │ 0.7397 │ 0.1957 │
+│ HCG    │ 0.1925 │ 0.1388 │
+└────────┴────────┴────────┘
+FHI Classification Accuracy: 60% | F1 (Hallucination): 0.75
+```
+
+**Key Findings:**
+- **Low AAS (0.10)**: Gemma's explanations reference different tokens than what its attention mechanism used internally — strong evidence of post-hoc rationalization
+- **High ESS (0.74)**: The model gives consistent but unfaithful explanations — it reliably hallucinating the same reasoning
+- **CIS near 0.49**: Removing explanation-highlighted tokens partially shifts the answer, showing mixed causal grounding
 
 ## Project Structure
 
 ```
 research/
-├── config/                 # YAML configuration (model, experiment, weights)
+├── config/                     # YAML configuration files
+│   ├── model_config.yaml       # Backend, model ID, generation params
+│   ├── experiment_config.yaml  # Dataset paths, attribution methods
+│   └── metric_weights.yaml     # FHI weight tuning (w1-w4)
 ├── src/
-│   ├── model/              # LLM client, token extractor, prompt templates
-│   ├── xai/                # Attention, gradient, SHAP attribution methods
-│   ├── perturbation/       # Token masking, output comparison
-│   ├── metrics/            # AAS, CIS, ESS, HCG, FHI computation
-│   ├── evaluation/         # Baselines, evaluator, statistical tests
-│   ├── data/               # Dataset loading, adversarial generation
-│   └── visualization/      # All plot generation scripts
-├── experiments/            # Pipeline entry points
-├── results/                # Raw JSON + processed CSVs + figures
-├── notebooks/              # Jupyter notebooks for exploration
-├── paper/                  # LaTeX paper
-└── tests/                  # Unit tests
+│   ├── model/                  # LLM inference layer
+│   │   ├── llm_client.py       # Unified HuggingFace + Ollama client
+│   │   ├── token_extractor.py  # Log-prob, attention, gradient extraction
+│   │   └── prompt_templates.py # CoT, self-explanation, direct prompts
+│   ├── xai/                    # Explainability methods
+│   │   ├── attention_attribution.py  # Attention rollout (Abnar & Zuidema 2020)
+│   │   ├── gradient_attribution.py   # Integrated Gradients via Captum
+│   │   ├── shap_approximator.py      # Coalition sampling SHAP
+│   │   └── attribution_utils.py      # Normalization & token cleaning
+│   ├── perturbation/           # Causal perturbation engine
+│   │   ├── token_masker.py     # Mask, delete, replace strategies
+│   │   ├── output_comparator.py # JS divergence, semantic distance, ROUGE-L
+│   │   └── causal_engine.py    # Orchestrates full causal impact analysis
+│   ├── metrics/                # FHI component metrics
+│   │   ├── aas.py              # Attribution Alignment Score
+│   │   ├── cis.py              # Causal Impact Score
+│   │   ├── ess.py              # Explanation Stability Score
+│   │   ├── hcg.py              # Hallucination Confidence Gap
+│   │   └── fhi.py              # Composite FHI + weight optimizer
+│   ├── data/                   # Dataset loading & adversarial generation
+│   │   ├── dataset_loader.py   # TriviaQA, HaluEval, MuSiQue loader
+│   │   └── adversarial_generator.py  # False premise injection
+│   ├── evaluation/             # Baselines & statistical evaluation
+│   │   ├── baselines.py        # LogProb thresholding, Self-Consistency
+│   │   └── evaluator.py        # Precision/Recall/F1/AUC-ROC comparison
+│   └── visualization/          # Publication-quality plotting
+│       └── plot_metrics.py     # KDE, scatter, ROC, radar charts
+├── experiments/
+│   └── run_pipeline.py         # Main entry point with MLflow tracking
+├── dashboard/                  # Interactive web dashboard
+│   ├── index.html
+│   ├── style.css
+│   └── app.js
+├── paper/                      # LaTeX paper scaffold (IEEE format)
+│   ├── main.tex
+│   └── sections/
+├── results/                    # Output data (gitignored)
+├── EXPLANATION.md              # Detailed pipeline walkthrough
+└── requirements.txt            # All Python dependencies
 ```
 
----
+## Quick Start
 
-## FHI Formula
+```bash
+# 1. Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
 
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Login to HuggingFace (for Gemma access)
+hf auth login
+
+# 4. Run test pipeline (5 samples)
+python experiments/run_pipeline.py --test
+
+# 5. Run on specific dataset
+python experiments/run_pipeline.py --dataset halueval
+
+# 6. Launch dashboard
+python3 -m http.server 8080 -d dashboard/
+# Open http://localhost:8080
 ```
-FHI = clip(w1·AAS + w2·CIS + w3·ESS - w4·HCG, 0, 1)
 
-Default weights:
-  w1 = 0.30  (Attribution Alignment)
-  w2 = 0.35  (Causal Impact — highest: causal evidence is most reliable)
-  w3 = 0.20  (Explanation Stability)
-  w4 = 0.15  (Confidence Gap — subtracted: penalizes overconfident wrong answers)
+## Tech Stack
 
-Threshold: FHI < 0.5 → hallucination detected
-```
-
----
-
-## Datasets
-
-| Dataset | Type | HF Hub ID |
-|---|---|---|
-| TriviaQA | Factual QA | `trivia_qa` |
-| HaluEval | Hallucination benchmark | `pminervini/HaluEval` |
-| MuSiQue | Multi-hop reasoning | `musique` |
-
----
+| Component | Technology |
+|-----------|-----------|
+| LLM | Google Gemma-2B-it (HuggingFace Transformers) |
+| XAI | Captum (Integrated Gradients), Custom Attention Rollout |
+| Semantic Similarity | SentenceTransformers (all-MiniLM-L6-v2) |
+| Experiment Tracking | MLflow |
+| Datasets | HuggingFace Datasets (TriviaQA, HaluEval, MuSiQue) |
+| Visualization | Matplotlib, Seaborn, Chart.js (dashboard) |
+| Compute | CPU-compatible (GPU/MPS optional) |
 
 ## Citation
 
-If you use this work, cite:
-
 ```bibtex
-@article{fhi2025,
-  title   = {A Multi-Dimensional Evaluation of Explanation Faithfulness and 
-             Hallucination in LLMs using Attribution Alignment and 
-             Causal Perturbation Analysis},
-  author  = {[Author]},
-  year    = {2025},
+@article{fhi2026,
+  title={A Multi-Dimensional Evaluation of Explanation Faithfulness and Hallucination in Large Language Models},
+  author={Your Name},
+  year={2026}
 }
 ```
+
+## License
+
+MIT

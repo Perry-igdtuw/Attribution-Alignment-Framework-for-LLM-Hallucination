@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FHI Research Dashboard — Faithfulness & Hallucination Analysis</title>
+    <meta name="description" content="Interactive dashboard for the Faithfulness-Hallucination Index research pipeline">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Ambient background glow -->
+    <div class="ambient-glow glow-1"></div>
+    <div class="ambient-glow glow-2"></div>
+    <div class="ambient-glow glow-3"></div>
+
+    <!-- Header -->
+    <header id="main-header">
+        <div class="header-content">
+            <div class="logo-group">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="14" stroke="url(#g1)" stroke-width="2.5"/><path d="M10 16h12M16 10v12" stroke="url(#g1)" stroke-width="2" stroke-linecap="round"/><defs><linearGradient id="g1" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#818cf8"/><stop offset="1" stop-color="#c084fc"/></linearGradient></defs></svg>
+                </div>
+                <div>
+                    <h1>FHI Research Dashboard</h1>
+                    <p class="subtitle">Multi-Dimensional Faithfulness & Hallucination Evaluation</p>
+                </div>
+            </div>
+            <div class="header-actions">
+                <div class="status-badge" id="pipeline-status">
+                    <span class="status-dot"></span>
+                    <span id="status-text">Loading...</span>
+                </div>
+                <button id="refresh-btn" class="btn-icon" title="Refresh Data">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- KPI Cards Row -->
+        <section class="kpi-row" id="kpi-section">
+            <div class="kpi-card" id="kpi-fhi">
+                <div class="kpi-label">Mean FHI</div>
+                <div class="kpi-value" id="kpi-fhi-value">—</div>
+                <div class="kpi-sub" id="kpi-fhi-sub">Faithfulness-Hallucination Index</div>
+                <div class="kpi-sparkline"><canvas id="spark-fhi"></canvas></div>
+            </div>
+            <div class="kpi-card" id="kpi-aas">
+                <div class="kpi-label">Mean AAS</div>
+                <div class="kpi-value" id="kpi-aas-value">—</div>
+                <div class="kpi-sub">Attribution Alignment</div>
+                <div class="kpi-sparkline"><canvas id="spark-aas"></canvas></div>
+            </div>
+            <div class="kpi-card" id="kpi-cis">
+                <div class="kpi-label">Mean CIS</div>
+                <div class="kpi-value" id="kpi-cis-value">—</div>
+                <div class="kpi-sub">Causal Impact</div>
+                <div class="kpi-sparkline"><canvas id="spark-cis"></canvas></div>
+            </div>
+            <div class="kpi-card" id="kpi-ess">
+                <div class="kpi-label">Mean ESS</div>
+                <div class="kpi-value" id="kpi-ess-value">—</div>
+                <div class="kpi-sub">Explanation Stability</div>
+                <div class="kpi-sparkline"><canvas id="spark-ess"></canvas></div>
+            </div>
+            <div class="kpi-card" id="kpi-hcg">
+                <div class="kpi-label">Mean HCG</div>
+                <div class="kpi-value" id="kpi-hcg-value">—</div>
+                <div class="kpi-sub">Hallucination Confidence Gap</div>
+                <div class="kpi-sparkline"><canvas id="spark-hcg"></canvas></div>
+            </div>
+        </section>
+
+        <!-- Main Charts Grid -->
+        <section class="charts-grid">
+            <!-- Radar Chart -->
+            <div class="chart-card chart-card-md">
+                <div class="chart-header">
+                    <h2>Model Trust Profile</h2>
+                    <span class="chart-badge">Radar</span>
+                </div>
+                <div class="chart-body">
+                    <canvas id="radar-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- FHI Distribution -->
+            <div class="chart-card chart-card-md">
+                <div class="chart-header">
+                    <h2>FHI Score Distribution</h2>
+                    <span class="chart-badge">Histogram</span>
+                </div>
+                <div class="chart-body">
+                    <canvas id="fhi-distribution-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Per-Sample Breakdown Bar -->
+            <div class="chart-card chart-card-lg">
+                <div class="chart-header">
+                    <h2>Per-Sample Metric Breakdown</h2>
+                    <span class="chart-badge">Stacked</span>
+                </div>
+                <div class="chart-body">
+                    <canvas id="sample-breakdown-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- AAS vs CIS Scatter -->
+            <div class="chart-card chart-card-md">
+                <div class="chart-header">
+                    <h2>AAS vs CIS Correlation</h2>
+                    <span class="chart-badge">Scatter</span>
+                </div>
+                <div class="chart-body">
+                    <canvas id="scatter-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Component Weight Contribution -->
+            <div class="chart-card chart-card-md">
+                <div class="chart-header">
+                    <h2>FHI Weight Contributions</h2>
+                    <span class="chart-badge">Doughnut</span>
+                </div>
+                <div class="chart-body">
+                    <canvas id="weight-chart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Sample Details Table -->
+        <section class="table-section">
+            <div class="chart-card chart-card-full">
+                <div class="chart-header">
+                    <h2>Sample Results</h2>
+                    <span class="chart-badge">Table</span>
+                </div>
+                <div class="table-wrapper">
+                    <table id="results-table">
+                        <thead>
+                            <tr>
+                                <th>Sample ID</th>
+                                <th>FHI</th>
+                                <th>AAS</th>
+                                <th>CIS</th>
+                                <th>ESS</th>
+                                <th>HCG</th>
+                                <th>Predicted</th>
+                                <th>Ground Truth</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Pipeline Explanation -->
+        <section class="explanation-section">
+            <div class="chart-card chart-card-full">
+                <div class="chart-header">
+                    <h2>Pipeline Architecture</h2>
+                    <span class="chart-badge">Overview</span>
+                </div>
+                <div class="pipeline-flow">
+                    <div class="pipeline-step">
+                        <div class="step-icon step-1">1</div>
+                        <div class="step-label">Generate</div>
+                        <div class="step-desc">LLM answers + explains</div>
+                    </div>
+                    <div class="pipeline-arrow">→</div>
+                    <div class="pipeline-step">
+                        <div class="step-icon step-2">2</div>
+                        <div class="step-label">Attribute</div>
+                        <div class="step-desc">Attention Rollout / IG</div>
+                    </div>
+                    <div class="pipeline-arrow">→</div>
+                    <div class="pipeline-step">
+                        <div class="step-icon step-3">3</div>
+                        <div class="step-label">Perturb</div>
+                        <div class="step-desc">Mask / Delete / Replace</div>
+                    </div>
+                    <div class="pipeline-arrow">→</div>
+                    <div class="pipeline-step">
+                        <div class="step-icon step-4">4</div>
+                        <div class="step-label">Compare</div>
+                        <div class="step-desc">JS-Div + Semantic Δ</div>
+                    </div>
+                    <div class="pipeline-arrow">→</div>
+                    <div class="pipeline-step">
+                        <div class="step-icon step-5">5</div>
+                        <div class="step-label">Score</div>
+                        <div class="step-desc">FHI = f(AAS,CIS,ESS,HCG)</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>FHI Research Dashboard • Attribution Alignment & Causal Perturbation Analysis • 2026</p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>

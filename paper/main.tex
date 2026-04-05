@@ -1,0 +1,50 @@
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+\usepackage{cvpr}
+\usepackage{times}
+\usepackage{epsfig}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{hyperref}
+
+% Include other packages here, before hyperref.
+\newcommand{\fhi}{\text{FHI}}
+\newcommand{\aas}{\text{AAS}}
+\newcommand{\cis}{\text{CIS}}
+\newcommand{\ess}{\text{ESS}}
+\newcommand{\hcg}{\text{HCG}}
+
+\begin{document}
+
+%%%%%%%%% TITLE
+\title{A Multi-Dimensional Evaluation of Explanation Faithfulness and Hallucination in Large Language Models using Attribution Alignment and Causal Perturbation Analysis}
+
+\author{Your Name\\
+Your Institution\\
+{\tt\small your.email@domain.edu}
+}
+
+\maketitle
+
+%%%%%%%%% ABSTRACT
+\begin{abstract}
+Large Language Models (LLMs) often generate fluent but factually incorrect outputs, known as hallucinations. While self-generated explanations (Chain-of-Thought) can improve reasoning, they can also act as post-hoc rationalizations that do not faithfully represent the model's internal causal mechanism. In this paper, we introduce the Faithfulness-Hallucination Index (FHI), a multi-dimensional evaluation framework that correlates explanation unfaithfulness with factual hallucination. By combining gradient-based Attribution Alignment Scores (AAS) with a rigorous Causal Impact Score (CIS) derived from targeted prompt perturbation, we empirically demonstrate that structurally unfaithful explanations are a strong leading indicator of model hallucination. We evaluate FHI on the HaluEval and MuSiQue datasets against standard log-probability and self-consistency baselines, establishing a new paradigm for probing LLM trustworthiness without external retrieval systems.
+\end{abstract}
+
+%%%%%%%%% BODY TEXT
+\input{sections/1_introduction}
+\input{sections/2_related_work}
+\input{sections/3_methodology}
+\input{sections/4_experimental_setup}
+\input{sections/5_results}
+\input{sections/6_conclusion}
+
+{\small
+\bibliographystyle{ieee_fullname}
+\bibliography{references}
+}
+
+\end{document}

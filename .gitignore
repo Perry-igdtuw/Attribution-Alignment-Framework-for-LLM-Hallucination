@@ -5,4 +5,5 @@ __pycache__/
 mlruns/
 results/
 .DS_Store
-STEPS/
+STEPS/logs_fhi.txt
+*.log

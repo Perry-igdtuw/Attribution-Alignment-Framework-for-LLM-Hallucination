@@ -25,7 +25,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 import mlflow
 import numpy as np
@@ -42,6 +42,12 @@ from src.xai.attention_attribution import AttentionAttribution
 from src.xai.gradient_attribution import GradientAttribution
 from src.perturbation.token_masker import TokenMasker, MaskStrategy
 from src.perturbation.output_comparator import OutputComparator
+from src.perturbation.causal_engine import CausalEngine
+from src.data.dataset_loader import load_dataset
+from src.data.adversarial_generator import AdversarialGenerator
+from src.evaluation.baselines import BaselineEvaluator
+from src.evaluation.evaluator import SystemEvaluator
+
 from src.metrics.aas import compute_aas
 from src.metrics.cis import compute_cis
 from src.metrics.ess import compute_ess_from_responses
@@ -64,64 +70,21 @@ def load_config():
     return model_cfg, exp_cfg, weight_cfg
 
 
-def load_dataset(dataset_name: str, n_samples: int, exp_cfg: dict):
-    """Load a HuggingFace dataset and return list of {question, answer} dicts."""
-    from datasets import load_dataset as hf_load
-
-    console.print(f"[cyan]Loading dataset: {dataset_name}[/cyan]")
-
-    if dataset_name == "trivia_qa":
-        ds = hf_load("trivia_qa", "rc.nocontext", split="validation")
-        samples = []
-        for item in ds.select(range(n_samples)):
-            samples.append({
-                "id": item["question_id"],
-                "question": item["question"],
-                "gold_answer": item["answer"]["value"],
-                "is_hallucination": False,  # factual dataset = no hallucination label
-            })
-        return samples
-
-    elif dataset_name == "halueval":
-        ds = hf_load("pminervini/HaluEval", "qa_samples", split="data")
-        samples = []
-        for i, item in enumerate(ds.select(range(n_samples))):
-            # HaluEval schema: question, answer, hallucination ('yes'/'no'), knowledge
-            # 'answer' is the model-generated answer; 'hallucination' tells if it's hallucinated
-            samples.append({
-                "id": f"halueval_{i}",
-                "question": item["question"],
-                "gold_answer": item["knowledge"],      # use knowledge as reference context
-                "is_hallucination": item["hallucination"] == "yes",
-            })
-            if len(samples) >= n_samples:
-                break
-        return samples
-
-    else:
-        # Fallback: minimal synthetic test data
-        logger.warning(f"Dataset {dataset_name} not found. Using synthetic test data.")
-        return [
-            {"id": f"test_{i}", "question": f"Test question {i}?",
-             "gold_answer": "test answer", "is_hallucination": False}
-            for i in range(min(n_samples, 5))
-        ]
-
-
 def run_single_sample(
     client: LLMClient,
     sample: dict,
     attention_attr: AttentionAttribution,
     gradient_attr: GradientAttribution,
-    masker: TokenMasker,
-    comparator: OutputComparator,
+    causal_engine: CausalEngine,
+    baseline_evaluator: BaselineEvaluator,
     weight_cfg: dict,
     exp_cfg: dict,
     compute_gradients: bool = False,
-) -> FHIResult:
+    skip_sc_baseline: bool = False,
+) -> Dict[str, Any]:
     """
-    Run the full FHI pipeline on a single sample.
-    Returns a FHIResult object.
+    Run the full FHI pipeline on a single sample, plus baselines.
+    Returns a dictionary of all results.
     """
     question = sample["question"]
     gold_answer = sample.get("gold_answer", "")
@@ -156,27 +119,14 @@ def run_single_sample(
     output_shifts = []
     if attribution_results:
         primary_attr = attribution_results[0]  # Use attention as primary
-
-        for strategy_str in exp_cfg["experiment"]["perturbation_strategies"]:
-            strategy = MaskStrategy(strategy_str)
-            masked = masker.mask_explanation_in_prompt(
-                prompt=question,
-                explanation=response.explanation,
-                attribution_result=primary_attr,
-                strategy=strategy,
-            )
-
-            # Generate output on perturbed prompt
-            perturbed_resp = client.generate(masked.masked_text, strategy="direct")
-
-            shift = comparator.compare(
-                original_output=response.answer,
-                perturbed_output=perturbed_resp.answer,
-                strategy=strategy_str,
-                original_log_probs=response.token_log_probs or None,
-                perturbed_log_probs=perturbed_resp.token_log_probs or None,
-            )
-            output_shifts.append(shift)
+        output_shifts = causal_engine.measure_causal_impact(
+            original_question=question,
+            original_response_text=response.answer,
+            original_explanation=response.explanation,
+            original_log_probs=response.token_log_probs or None,
+            attribution_result=primary_attr,
+            top_k=top_k,
+        )
 
     cis = compute_cis(output_shifts)
 
@@ -205,7 +155,25 @@ def run_single_sample(
         true_hallucination=true_hallucination,
     )
 
-    return fhi_result
+    # ── Step 8: Baselines ─────────────────────────────────────────────────────
+    # Evaluate Log-Prob baseline
+    logprob_hl_pred = baseline_evaluator.evaluate_logprob(
+        response.token_log_probs or [], threshold=-0.5
+    )
+    
+    # Evaluate Self-Consistency baseline (skip in fast/test mode — very expensive on CPU)
+    sc_risk = 0.0
+    if not skip_sc_baseline:
+        sc_risk = baseline_evaluator.evaluate_self_consistency(
+            question, n_samples=3
+        )
+
+    return {
+        "fhi_result": fhi_result,
+        "logprob_hallucination": logprob_hl_pred,
+        "self_consistency_risk": sc_risk,
+        "is_adversarial": sample.get("is_adversarial", False)
+    }
 
 
 def main(args):
@@ -236,8 +204,16 @@ def main(args):
             device=model_cfg["model"]["device"],
         )
 
+    # Setup Phase 4 and Phase 6 Orchestrators
     masker = TokenMasker()
     comparator = OutputComparator()
+    causal_engine = CausalEngine(
+        llm_client=client, 
+        masker=masker, 
+        comparator=comparator,
+        strategies=exp_cfg["experiment"]["perturbation_strategies"]
+    )
+    baseline_evaluator = BaselineEvaluator(llm_client=client)
 
     # ── MLflow tracking ───────────────────────────────────────────────────────
     mlflow.set_tracking_uri(exp_cfg["experiment"]["mlflow_tracking_uri"])
@@ -246,12 +222,12 @@ def main(args):
     dataset_names = (
         [args.dataset]
         if args.dataset
-        else ["trivia_qa", "halueval"]
+        else ["halueval"]  # Prioritize HaluEval as it has ground truth
     )
 
-    all_results: List[FHIResult] = []
+    all_results: List[Dict[str, Any]] = []
 
-    with mlflow.start_run(run_name=f"fhi_{model_cfg['model']['backend']}"):
+    with mlflow.start_run(run_name=f"fhi_evaluation_{model_cfg['model']['backend']}"):
         mlflow.log_params({
             "backend": model_cfg["model"]["backend"],
             "model": model_cfg["model"]["hf_model_id"],
@@ -265,7 +241,12 @@ def main(args):
         })
 
         for dataset_name in dataset_names:
-            samples = load_dataset(dataset_name, n_samples, exp_cfg)
+            seed = exp_cfg["experiment"].get("seed", 42)
+            samples = load_dataset(dataset_name, n_samples, seed)
+            
+            # (Optional) We can make the first sample adversarial if testing
+            if args.test and samples:
+                samples[0] = AdversarialGenerator.inject_false_premise(samples[0])
 
             for sample in track(samples, description=f"Processing {dataset_name}..."):
                 try:
@@ -274,11 +255,12 @@ def main(args):
                         sample=sample,
                         attention_attr=attention_attr,
                         gradient_attr=gradient_attr,
-                        masker=masker,
-                        comparator=comparator,
+                        causal_engine=causal_engine,
+                        baseline_evaluator=baseline_evaluator,
                         weight_cfg=weight_cfg,
                         exp_cfg=exp_cfg,
-                        compute_gradients=False,  # Enable for full XAI run
+                        compute_gradients=False,
+                        skip_sc_baseline=args.test,  # Skip SC in test mode (too slow on CPU)
                     )
                     all_results.append(result)
                 except Exception as e:
@@ -288,45 +270,64 @@ def main(args):
 
         # ── Log aggregate metrics to MLflow ──────────────────────────────────
         if all_results:
-            fhi_scores = [r.fhi for r in all_results]
+            fhi_res = [r["fhi_result"] for r in all_results]
+            fhi_scores = [r.fhi for r in fhi_res]
+            
             mlflow.log_metrics({
                 "mean_fhi": float(np.mean(fhi_scores)),
-                "mean_aas": float(np.mean([r.aas for r in all_results])),
-                "mean_cis": float(np.mean([r.cis for r in all_results])),
-                "mean_ess": float(np.mean([r.ess for r in all_results])),
-                "mean_hcg": float(np.mean([r.hcg for r in all_results])),
+                "mean_aas": float(np.mean([r.aas for r in fhi_res])),
+                "mean_cis": float(np.mean([r.cis for r in fhi_res])),
+                "mean_ess": float(np.mean([r.ess for r in fhi_res])),
+                "mean_hcg": float(np.mean([r.hcg for r in fhi_res])),
             })
 
-            # ── Evaluate hallucination detection ──────────────────────────────
-            labeled = [r for r in all_results if r.true_hallucination is not None]
+            # ── Evaluate hallucination detection (Phase 6 Evaluator) ────────
+            labeled = [r for r in all_results if r["fhi_result"].true_hallucination is not None]
             if labeled:
-                from sklearn.metrics import classification_report
-                y_true = [r.true_hallucination for r in labeled]
-                y_pred = [r.predicted_hallucination for r in labeled]
-                report = classification_report(y_true, y_pred, output_dict=True)
+                y_true = [r["fhi_result"].true_hallucination for r in labeled]
+                fhi_scores = [r["fhi_result"].fhi for r in labeled]
+                logprob_preds = [r["logprob_hallucination"] for r in labeled]
+                sc_scores = [r["self_consistency_risk"] for r in labeled]
+                
+                eval_report = SystemEvaluator.evaluate(
+                    y_true=y_true,
+                    fhi_scores=fhi_scores,
+                    logprob_preds=logprob_preds,
+                    self_consistency_scores=sc_scores,
+                    fhi_threshold=exp_cfg["experiment"]["fhi_threshold"]
+                )
+                
+                # Log metrics cleanly
                 mlflow.log_metrics({
-                    "precision": report["weighted avg"]["precision"],
-                    "recall": report["weighted avg"]["recall"],
-                    "f1": report["weighted avg"]["f1-score"],
+                    "FHI_F1": eval_report["FHI"]["macro avg"]["f1-score"],
+                    "LogProb_F1": eval_report["LogProb"]["macro avg"]["f1-score"],
                 })
-                console.print("\n[bold]Classification Report:[/bold]")
-                console.print(classification_report(y_true, y_pred))
+                
+                if eval_report.get("FHI_AUC") is not None:
+                    console.print(f"\n[bold]AUC-ROC[/bold] | FHI: {eval_report['FHI_AUC']:.2f} vs Self-Consistency: {eval_report['SelfConsistency_AUC']:.2f}")
+
+                console.print("\n[bold]FHI Classification Report:[/bold]")
+                console.print(eval_report["FHI"])
 
     # ── Save results to JSON ──────────────────────────────────────────────────
     out_dir = Path(exp_cfg["experiment"]["output_dir"]) / "raw"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_file = out_dir / f"fhi_results_{exp_cfg['experiment']['name']}.json"
 
-    results_json = [
-        {
-            "sample_id": r.sample_id,
-            "fhi": r.fhi, "aas": r.aas, "cis": r.cis,
-            "ess": r.ess, "hcg": r.hcg,
-            "predicted_hallucination": r.predicted_hallucination,
-            "true_hallucination": r.true_hallucination,
-        }
-        for r in all_results
-    ]
+    results_json = []
+    for r in all_results:
+        fhi_r = r["fhi_result"]
+        results_json.append({
+            "sample_id": fhi_r.sample_id,
+            "fhi": fhi_r.fhi, "aas": fhi_r.aas, "cis": fhi_r.cis,
+            "ess": fhi_r.ess, "hcg": fhi_r.hcg,
+            "predicted_hallucination": fhi_r.predicted_hallucination,
+            "true_hallucination": fhi_r.true_hallucination,
+            "baseline_logprob": r["logprob_hallucination"],
+            "baseline_sc_risk": r["self_consistency_risk"],
+            "adversarial_injected": r["is_adversarial"]
+        })
+        
     with open(out_file, "w") as f:
         json.dump(results_json, f, indent=2)
 
@@ -337,12 +338,14 @@ def main(args):
     table.add_column("Metric", style="cyan")
     table.add_column("Mean", style="green")
     table.add_column("Std", style="yellow")
+    
+    fhi_res = [r["fhi_result"] for r in all_results]
     for metric, vals in [
-        ("FHI", [r.fhi for r in all_results]),
-        ("AAS", [r.aas for r in all_results]),
-        ("CIS", [r.cis for r in all_results]),
-        ("ESS", [r.ess for r in all_results]),
-        ("HCG", [r.hcg for r in all_results]),
+        ("FHI", [r.fhi for r in fhi_res]),
+        ("AAS", [r.aas for r in fhi_res]),
+        ("CIS", [r.cis for r in fhi_res]),
+        ("ESS", [r.ess for r in fhi_res]),
+        ("HCG", [r.hcg for r in fhi_res]),
     ]:
         table.add_row(metric, f"{np.mean(vals):.4f}", f"{np.std(vals):.4f}")
     console.print(table)

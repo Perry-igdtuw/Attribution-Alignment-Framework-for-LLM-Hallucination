@@ -20,7 +20,7 @@ model:
   device: "cpu"
 
   # Number of times to generate for ESS (stability)
-  n_stability_runs: 5
+  n_stability_runs: 2
 
   # Ollama server URL
   ollama_base_url: "http://localhost:11434"
