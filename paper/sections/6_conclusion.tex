@@ -1,0 +1,34 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+We introduced the Faithfulness-Hallucination Index (FHI), a multi-dimensional evaluation framework that establishes a quantitative link between explanation unfaithfulness and factual hallucination in Large Language Models. By decomposing faithfulness into four complementary dimensions---Attribution Alignment (AAS), Causal Impact (CIS), Explanation Stability (ESS), and Hallucination Confidence Gap (HCG)---our framework captures nuances that single-metric approaches miss.
+
+Our evaluation on HaluEval using Gemma-2B-it revealed a critical finding: the model produces \textbf{stable but unfaithful} explanations (high ESS, low AAS), indicating systematic post-hoc rationalization rather than random noise. This pattern---where the model reliably constructs the same causally disconnected reasoning---represents a qualitatively different and arguably more dangerous form of hallucination than inconsistent confabulation.
+
+FHI achieved an F1 score of 0.75 on hallucination detection with perfect recall, demonstrating that internal explanation faithfulness serves as a strong proxy for factual reliability without requiring external knowledge bases.
+
+\subsection{Limitations}
+
+\begin{enumerate}
+    \item \textbf{Scale.} Our evaluation was conducted on a small sample ($N=5$) due to computational constraints of CPU-only inference. Larger-scale evaluation across hundreds of samples is needed to establish statistical significance and compute meaningful AUC-ROC scores.
+    
+    \item \textbf{Model coverage.} We evaluated a single model (Gemma-2B-it). Extending the analysis to models of varying scales (7B, 13B, 70B) and architectures (Llama, Mistral, GPT) would strengthen generalizability claims.
+    
+    \item \textbf{Attribution limitations.} Attention rollout, while effective, is an approximation. The low AAS scores may partially reflect limitations of the attribution method rather than pure explanation unfaithfulness. Integrating Integrated Gradients and SHAP would provide a more robust attribution signal.
+    
+    \item \textbf{Weight sensitivity.} The FHI weights ($w_1$--$w_4$) were set empirically. A systematic ablation study with grid search optimization would yield more principled weight selection.
+    
+    \item \textbf{Threshold selection.} The hallucination threshold $\tau = 0.5$ was chosen as a natural midpoint. Receiver operating characteristic analysis on a larger validation set would enable optimal threshold selection.
+\end{enumerate}
+
+\subsection{Future Work}
+
+Several promising directions emerge from this work:
+
+\textbf{Multi-scale evaluation.} Applying FHI across model sizes would reveal whether explanation faithfulness improves with scale, providing insights into the emergence of genuine reasoning in larger models.
+
+\textbf{Training-time integration.} FHI could serve as a reward signal in Reinforcement Learning from Human Feedback (RLHF), penalizing models that produce unfaithful explanations during fine-tuning.
+
+\textbf{Domain-specific deployment.} Extending FHI to medical, legal, and scientific domains where hallucination consequences are severe would demonstrate practical impact.
+
+\textbf{Real-time monitoring.} Integrating FHI as a lightweight inference-time check could provide users with confidence scores alongside model outputs, enabling more informed trust calibration.

@@ -1,0 +1,28 @@
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Hallucination in Large Language Models}
+
+Hallucination in LLMs refers to the generation of content that is nonsensical or unfaithful to the source material~\cite{ji2023survey}. Maynez et al.~\cite{maynez2020faithfulness} categorize hallucinations as either \textit{intrinsic} (contradicting the source) or \textit{extrinsic} (unverifiable against the source). Recent taxonomies further distinguish between factual hallucination and faithfulness hallucination~\cite{zhang2023sirens}, with the latter being more challenging to detect as it requires understanding the model's internal reasoning.
+
+Detection methods have evolved from simple heuristics to sophisticated frameworks. Log-probability thresholding~\cite{kadavath2022language} flags outputs where the model assigns low confidence. Self-consistency~\cite{wang2022self} samples multiple reasoning paths and measures agreement. SelfCheckGPT~\cite{manakul2023selfcheckgpt} uses stochastic sampling to identify hallucinations without external knowledge. While effective in specific settings, these methods treat the model as a black box and do not examine \textit{why} hallucinations occur at the mechanistic level.
+
+\subsection{Explainability and Attribution in NLP}
+
+Explainable AI (XAI) methods aim to make model decisions interpretable. In the context of transformers, three dominant paradigms exist:
+
+\textbf{Attention-based methods.} Raw attention weights have been widely used as a proxy for token importance~\cite{vaswani2017attention}. However, Jain and Wallace~\cite{jain2019attention} demonstrated that attention weights often do not correlate with gradient-based feature importance. Abnar and Zuidema~\cite{abnar2020quantifying} proposed \textit{attention rollout}, which aggregates attention across layers while accounting for residual connections, providing a more faithful representation of information flow.
+
+\textbf{Gradient-based methods.} Integrated Gradients (IG)~\cite{sundararajan2017axiomatic} satisfies the completeness axiom, ensuring that attribution scores sum to the difference between the output and a baseline. Captum~\cite{kokhlikyan2020captum} provides a production-ready implementation for PyTorch models. These methods offer theoretically grounded attribution but are computationally expensive for autoregressive generation.
+
+\textbf{Perturbation-based methods.} SHAP~\cite{lundberg2017unified} and LIME~\cite{ribeiro2016should} approximate feature importance by observing output changes under input perturbations. While model-agnostic, they require careful design of the perturbation strategy and may not scale to long sequences.
+
+\subsection{Faithfulness of Explanations}
+
+The faithfulness of model-generated explanations---whether they accurately reflect the model's reasoning process---has emerged as a critical concern. Turpin et al.~\cite{turpin2023language} showed that Chain-of-Thought explanations can be systematically unfaithful, with models producing correct answers through biased features while citing irrelevant reasoning. Lanham et al.~\cite{lanham2023measuring} further demonstrated that early truncation of CoT reasoning often does not affect the final answer, suggesting that explanations may serve as post-hoc rationalizations rather than genuine reasoning traces.
+
+Our work bridges the gap between XAI attribution methods and hallucination detection. Unlike prior approaches that evaluate faithfulness and hallucination independently, we establish a \textit{quantitative causal link} between explanation unfaithfulness and factual hallucination through our FHI framework.
+
+\subsection{Causal Analysis of Model Behavior}
+
+Causal interventions on neural networks have been used to understand information flow~\cite{vig2020investigating, meng2022locating}. Interchange interventions~\cite{geiger2021causal} and causal tracing~\cite{meng2022locating} modify internal representations to isolate causal mechanisms. Our approach operates at the input level rather than the representation level: we perturb tokens identified by attribution methods and measure the downstream effect on generation, making our method applicable without access to internal model states.

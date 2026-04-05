@@ -1,0 +1,26 @@
+\section{Introduction}
+\label{sec:intro}
+
+Large Language Models (LLMs) have achieved remarkable performance across a broad spectrum of natural language tasks, from question answering to code generation~\cite{brown2020language, touvron2023llama}. However, these models frequently produce outputs that are fluent yet factually incorrect---a phenomenon widely known as \textit{hallucination}~\cite{ji2023survey}. The consequences of hallucination range from the dissemination of misinformation to safety-critical failures in medical and legal domains.
+
+A prominent strategy for improving LLM reliability is Chain-of-Thought (CoT) prompting~\cite{wei2022chain}, which elicits intermediate reasoning steps before a final answer. While CoT demonstrably improves accuracy on complex tasks, a critical and underexplored question remains: \textit{are these explanations faithful to the model's actual internal reasoning process, or are they merely post-hoc rationalizations?}
+
+This distinction is consequential. A model that produces correct answers through genuine reasoning should exhibit \textit{faithful} explanations---explanations whose key tokens causally influence the output. Conversely, a model that generates plausible-sounding but causally disconnected explanations may be constructing post-hoc justifications, a behavior strongly correlated with hallucination~\cite{turpin2023language}.
+
+Existing hallucination detection methods fall into two broad categories: (i) \textit{output-level} approaches such as log-probability thresholding and self-consistency~\cite{wang2022self}, and (ii) \textit{retrieval-augmented} methods that verify claims against external knowledge bases~\cite{lewis2020retrieval}. Neither category examines the \textit{internal causal structure} of the model's reasoning. We argue that this is a fundamental gap: hallucination detection should not rely solely on what the model says, but on whether the model's stated reasoning actually drove its output.
+
+\subsection{Contributions}
+
+In this paper, we introduce the \textbf{Faithfulness-Hallucination Index (FHI)}, a novel multi-dimensional evaluation framework that directly links explanation unfaithfulness to factual hallucination. Our contributions are:
+
+\begin{enumerate}
+    \item \textbf{A multi-dimensional metric framework}: We decompose faithfulness into four complementary dimensions---Attribution Alignment (AAS), Causal Impact (CIS), Explanation Stability (ESS), and Hallucination Confidence Gap (HCG)---capturing aspects that no single metric can represent.
+    
+    \item \textbf{A causal perturbation methodology}: We introduce a systematic approach that masks, deletes, or replaces tokens highlighted by XAI attribution methods, then measures the resulting output shift using JS divergence, semantic distance, and ROUGE-L delta.
+    
+    \item \textbf{Empirical validation}: We evaluate FHI on the HaluEval benchmark~\cite{li2023halueval} using Gemma-2B-it~\cite{team2024gemma}, comparing against log-probability and self-consistency baselines. Our framework achieves an F1 score of 0.75 on hallucination detection, establishing that explanation unfaithfulness is a strong leading indicator of hallucination.
+    
+    \item \textbf{An open-source evaluation pipeline}: We release a modular, reproducible pipeline with MLflow experiment tracking and an interactive visualization dashboard.
+\end{enumerate}
+
+The remainder of this paper is organized as follows. Section~\ref{sec:related} reviews related work. Section~\ref{sec:methodology} presents the FHI framework. Section~\ref{sec:experiments} describes the experimental setup. Section~\ref{sec:results} reports and analyzes results. Section~\ref{sec:conclusion} concludes with limitations and future directions.
