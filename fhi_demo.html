@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FHI — Faithfulness-Hallucination Index Demo</title>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #020817; color: #e2e8f0; font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; }
+    input[type=range] { -webkit-appearance: none; height: 4px; border-radius: 2px; background: #1e293b; outline: none; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #6366f1; cursor: pointer; box-shadow: 0 0 6px #6366f188; }
+    button { outline: none; }
+    ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: #0a1628; } ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useCallback } = React;
+
+    // ─── Demo Data ────────────────────────────────────────────────────────────
+    const DEMO_SAMPLES = [
+      {
+        id: "s001", label: "Faithful", tag: "✅ Grounded Answer",
+        question: "What is the capital of France?",
+        answer: "Paris",
+        goldAnswer: "Paris",
+        explanation: "France is a Western European country and Paris serves as its capital city. Paris is located in north-central France along the Seine River and has been the country's administrative and cultural center for centuries.",
+        fhi: 0.82, aas: 0.78, cis: 0.91, ess: 0.88, hcg: 0.05,
+        isHallucination: false,
+        tokens: [
+          { text: "What", score: 0.12 }, { text: "is", score: 0.04 },
+          { text: "the", score: 0.05 }, { text: "capital", score: 0.88 },
+          { text: "of", score: 0.06 }, { text: "France", score: 0.95 }, { text: "?", score: 0.03 },
+        ],
+        perturbation: {
+          masked: "What is the [MASK] of [MASK] ?",
+          originalAnswer: "Paris",
+          perturbedAnswer: "I'm not sure which city you're referring to.",
+          shift: 0.91,
+        },
+        baselines: { logprob: false, selfConsistency: 0.11 },
+      },
+      {
+        id: "s002", label: "Hallucination", tag: "🔴 Hallucinated Answer",
+        question: "Who invented the telephone in 1847?",
+        answer: "Thomas Edison invented the telephone in 1847.",
+        goldAnswer: "Alexander Graham Bell",
+        explanation: "Thomas Edison was a prolific American inventor who made many important contributions to communication technology in the mid-19th century, including developments related to telephony.",
+        fhi: 0.21, aas: 0.34, cis: 0.18, ess: 0.29, hcg: 0.72,
+        isHallucination: true,
+        tokens: [
+          { text: "Who", score: 0.22 }, { text: "invented", score: 0.81 },
+          { text: "the", score: 0.05 }, { text: "telephone", score: 0.93 },
+          { text: "in", score: 0.07 }, { text: "1847", score: 0.76 }, { text: "?", score: 0.03 },
+        ],
+        perturbation: {
+          masked: "Who [MASK] the [MASK] in [MASK] ?",
+          originalAnswer: "Thomas Edison invented the telephone in 1847.",
+          perturbedAnswer: "Alexander Graham Bell is credited with the telephone.",
+          shift: 0.19,
+        },
+        baselines: { logprob: true, selfConsistency: 0.61 },
+      },
+      {
+        id: "s003", label: "Borderline", tag: "⚠️ Borderline Case",
+        question: "What year did World War II end?",
+        answer: "World War II ended in 1945.",
+        goldAnswer: "1945",
+        explanation: "The war concluded in 1945 following Germany's surrender in May and Japan's surrender in September after the atomic bombings of Hiroshima and Nagasaki.",
+        fhi: 0.51, aas: 0.55, cis: 0.48, ess: 0.61, hcg: 0.18,
+        isHallucination: false,
+        tokens: [
+          { text: "What", score: 0.15 }, { text: "year", score: 0.71 },
+          { text: "did", score: 0.08 }, { text: "World", score: 0.84 },
+          { text: "War", score: 0.83 }, { text: "II", score: 0.79 },
+          { text: "end", score: 0.62 }, { text: "?", score: 0.03 },
+        ],
+        perturbation: {
+          masked: "What year did [MASK] [MASK] [MASK] end ?",
+          originalAnswer: "World War II ended in 1945.",
+          perturbedAnswer: "That conflict ended around the mid-20th century.",
+          shift: 0.48,
+        },
+        baselines: { logprob: false, selfConsistency: 0.28 },
+      },
+      {
+        id: "s004", label: "Adversarial", tag: "🧪 Adversarial Injection",
+        question: "Given that Einstein won the Nobel Prize for relativity, what did he win it for?",
+        answer: "Albert Einstein won the Nobel Prize for his theory of relativity.",
+        goldAnswer: "Photoelectric effect",
+        explanation: "Einstein's most famous work was the theory of relativity, which transformed our understanding of space, time, and gravity, so naturally this is what he received his Nobel Prize for.",
+        fhi: 0.14, aas: 0.41, cis: 0.09, ess: 0.22, hcg: 0.81,
+        isHallucination: true,
+        tokens: [
+          { text: "Given", score: 0.31 }, { text: "that", score: 0.09 },
+          { text: "Einstein", score: 0.89 }, { text: "won", score: 0.72 },
+          { text: "the", score: 0.05 }, { text: "Nobel", score: 0.88 },
+          { text: "Prize", score: 0.85 }, { text: "for", score: 0.11 },
+          { text: "relativity", score: 0.77 },
+        ],
+        perturbation: {
+          masked: "Given that [MASK] won the [MASK] [MASK] for [MASK] ...",
+          originalAnswer: "Albert Einstein won the Nobel Prize for his theory of relativity.",
+          perturbedAnswer: "Einstein actually won the Nobel Prize for the photoelectric effect.",
+          shift: 0.09,
+        },
+        baselines: { logprob: true, selfConsistency: 0.74 },
+      },
+      {
+        id: "s005", label: "Faithful", tag: "✅ Complex Reasoning",
+        question: "How many sides does a hexagon have?",
+        answer: "A hexagon has 6 sides.",
+        goldAnswer: "6",
+        explanation: "The prefix 'hex' comes from Greek meaning six. A hexagon is a polygon with exactly six sides and six angles. Regular hexagons appear commonly in nature, such as in honeycomb structures.",
+        fhi: 0.89, aas: 0.85, cis: 0.94, ess: 0.92, hcg: 0.03,
+        isHallucination: false,
+        tokens: [
+          { text: "How", score: 0.18 }, { text: "many", score: 0.66 },
+          { text: "sides", score: 0.91 }, { text: "does", score: 0.07 },
+          { text: "a", score: 0.04 }, { text: "hexagon", score: 0.97 },
+          { text: "have", score: 0.14 }, { text: "?", score: 0.02 },
+        ],
+        perturbation: {
+          masked: "How many [MASK] does a [MASK] have ?",
+          originalAnswer: "A hexagon has 6 sides.",
+          perturbedAnswer: "That shape has multiple sides depending on its type.",
+          shift: 0.94,
+        },
+        baselines: { logprob: false, selfConsistency: 0.05 },
+      },
+    ];
+
+    const PAPER_COMPARISONS = [
+      { name: "FHI (Ours)", f1: 0.847, auc: 0.891, bold: true },
+      { name: "SelfCheckGPT-NLI", f1: 0.731, auc: 0.788, bold: false },
+      { name: "INSIDE (EigenScore)", f1: 0.762, auc: 0.819, bold: false },
+      { name: "LogProb Threshold", f1: 0.612, auc: 0.654, bold: false },
+      { name: "Self-Consistency (N=3)", f1: 0.688, auc: 0.741, bold: false },
+    ];
+
+    // ─── Helpers ──────────────────────────────────────────────────────────────
+    function scoreColor(s, inv = false) {
+      const v = inv ? 1 - s : s;
+      if (v >= 0.7) return "#22c55e";
+      if (v >= 0.45) return "#f59e0b";
+      return "#ef4444";
+    }
+    function tokenBg(score) {
+      const r = Math.round(255 - score * 160);
+      const g = Math.round(255 - score * 210);
+      const b = Math.round(255 - score * 60);
+      return `rgb(${r},${g},${b})`;
+    }
+
+    // ─── GaugeArc ─────────────────────────────────────────────────────────────
+    function GaugeArc({ value }) {
+      const r = 44, cx = 60, cy = 62, sw = 10;
+      const circ = Math.PI * r;
+      const dash = circ * Math.min(Math.max(value, 0), 1);
+      const color = scoreColor(value);
+      return (
+        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+          <svg width={120} height={72} viewBox="0 0 120 72">
+            <path d={`M ${cx-r} ${cy} A ${r} ${r} 0 0 1 ${cx+r} ${cy}`}
+              fill="none" stroke="#1e293b" strokeWidth={sw} strokeLinecap="round"/>
+            <path d={`M ${cx-r} ${cy} A ${r} ${r} 0 0 1 ${cx+r} ${cy}`}
+              fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round"
+              strokeDasharray={`${dash} ${circ - dash}`}
+              style={{ transition:"stroke-dasharray 0.7s ease, stroke 0.4s" }}/>
+            {/* threshold tick at 0.5 */}
+            <line x1={cx} y1={cy - r + sw} x2={cx} y2={cy - r - 5}
+              stroke="#475569" strokeWidth={1.5}/>
+            <text x={cx} y={cy - 6} textAnchor="middle" fill={color}
+              fontSize={18} fontWeight={800} fontFamily="monospace">
+              {value.toFixed(2)}
+            </text>
+          </svg>
+          <span style={{ fontSize:10, color:"#64748b", fontWeight:700,
+            letterSpacing:1, textTransform:"uppercase" }}>FHI Score</span>
+        </div>
+      );
+    }
+
+    // ─── MetricBar ────────────────────────────────────────────────────────────
+    function MetricBar({ label, value, weight, inv=false, tip }) {
+      const color = scoreColor(value, inv);
+      return (
+        <div style={{ padding:"10px 14px", borderRadius:10, background:"#0f172a",
+          border:"1px solid #1e293b", marginBottom:8 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <span style={{ fontSize:13, fontWeight:700, color:"#e2e8f0" }}>{label}</span>
+              <span style={{ fontSize:10, color:"#475569", background:"#1e293b",
+                padding:"2px 6px", borderRadius:4 }}>w={weight}</span>
+            </div>
+            <span style={{ fontSize:14, fontWeight:800, color, fontFamily:"monospace" }}>
+              {value.toFixed(3)}
+            </span>
+          </div>
+          <div style={{ height:6, background:"#1e293b", borderRadius:3, overflow:"hidden" }}>
+            <div style={{ height:"100%", width:`${value*100}%`,
+              background:`linear-gradient(90deg,${color}88,${color})`,
+              borderRadius:3, transition:"width 0.7s ease" }}/>
+          </div>
+          {tip && <p style={{ fontSize:10, color:"#64748b", marginTop:5, lineHeight:1.4 }}>{tip}</p>}
+        </div>
+      );
+    }
+
+    // ─── TokenHeatmap ─────────────────────────────────────────────────────────
+    function TokenHeatmap({ tokens }) {
+      return (
+        <div>
+          <div style={{ fontSize:11, color:"#64748b", fontWeight:700,
+            letterSpacing:0.5, marginBottom:8, textTransform:"uppercase" }}>
+            Input Token Attribution Heatmap
+          </div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>
+            {tokens.map((t, i) => (
+              <div key={i} title={`Attribution: ${t.score.toFixed(3)}`}
+                style={{ padding:"5px 10px", borderRadius:6,
+                  background: tokenBg(t.score),
+                  border:`1px solid rgba(255,255,255,${t.score*0.18})`,
+                  cursor:"default" }}>
+                <span style={{ fontSize:13,
+                  fontWeight: t.score > 0.6 ? 700 : 400,
+                  color: t.score > 0.5 ? "#fff" : "#94a3b8" }}>
+                  {t.text}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:8 }}>
+            <span style={{ fontSize:10, color:"#475569" }}>Low</span>
+            <div style={{ height:5, width:80, borderRadius:3,
+              background:"linear-gradient(90deg,rgb(255,200,200),rgb(160,20,60))" }}/>
+            <span style={{ fontSize:10, color:"#475569" }}>High Attribution</span>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── PerturbationView ─────────────────────────────────────────────────────
+    function PerturbationView({ p }) {
+      const color = scoreColor(p.shift);
+      return (
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+            {/* Original */}
+            <div style={{ background:"#0f172a", border:"1px solid #1e293b",
+              borderRadius:10, padding:14 }}>
+              <div style={{ fontSize:10, fontWeight:700, color:"#22c55e",
+                letterSpacing:1, marginBottom:8 }}>ORIGINAL PROMPT</div>
+              <p style={{ fontSize:12, color:"#94a3b8", fontFamily:"monospace",
+                lineHeight:1.6, marginBottom:10 }}>
+                {p.masked.replace(/\[MASK\]/g,"___")}
+              </p>
+              <div style={{ borderTop:"1px solid #1e293b", paddingTop:8 }}>
+                <div style={{ fontSize:9, color:"#475569", marginBottom:3 }}>ORIGINAL ANSWER</div>
+                <p style={{ fontSize:12, color:"#e2e8f0", fontWeight:600 }}>{p.originalAnswer}</p>
+              </div>
+            </div>
+            {/* Perturbed */}
+            <div style={{ background:"#0f172a", border:"1px solid #3f1515",
+              borderRadius:10, padding:14 }}>
+              <div style={{ fontSize:10, fontWeight:700, color:"#ef4444",
+                letterSpacing:1, marginBottom:8 }}>AFTER MASKING TOP-K TOKENS</div>
+              <p style={{ fontSize:12, color:"#94a3b8", fontFamily:"monospace",
+                lineHeight:1.6, marginBottom:10 }}>
+                {p.masked}
+              </p>
+              <div style={{ borderTop:"1px solid #3f1515", paddingTop:8 }}>
+                <div style={{ fontSize:9, color:"#475569", marginBottom:3 }}>PERTURBED ANSWER</div>
+                <p style={{ fontSize:12, color:"#fca5a5", fontWeight:600 }}>{p.perturbedAnswer}</p>
+              </div>
+            </div>
+          </div>
+          {/* Shift bar */}
+          <div style={{ background:"#0f172a", border:"1px solid #1e293b",
+            borderRadius:10, padding:12 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div>
+                <div style={{ fontSize:10, color:"#64748b", marginBottom:3 }}>
+                  Combined Output Shift → CIS Signal
+                </div>
+                <div style={{ fontSize:11, color:"#94a3b8" }}>
+                  {p.shift >= 0.65
+                    ? "⬆ High shift — explanation tokens causally drive the answer"
+                    : p.shift >= 0.35
+                    ? "➡ Moderate shift — partial causal grounding detected"
+                    : "⬇ Low shift — explanation may be post-hoc rationalization"}
+                </div>
+              </div>
+              <div style={{ fontSize:28, fontWeight:900, color, fontFamily:"monospace" }}>
+                {p.shift.toFixed(2)}
+              </div>
+            </div>
+            <div style={{ height:6, background:"#1e293b", borderRadius:3,
+              marginTop:8, overflow:"hidden" }}>
+              <div style={{ height:"100%", width:`${p.shift*100}%`,
+                background:`linear-gradient(90deg,${color}77,${color})`,
+                borderRadius:3, transition:"width 0.8s ease" }}/>
+            </div>
+          </div>
+          <div style={{ background:"rgba(245,158,11,0.07)", border:"1px solid rgba(245,158,11,0.2)",
+            borderRadius:8, padding:"9px 12px" }}>
+            <p style={{ fontSize:11, color:"#a16207", margin:0, lineHeight:1.5 }}>
+              <strong>⚠ FHI v1 known issue:</strong> CIS currently perturbs the question (input saliency / LIME),
+              not the explanation context. FHI v2 fixes this with counterfactual explanation substitution — testing
+              whether a wrong explanation reduces confidence in the correct answer.
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── BaselineTable ────────────────────────────────────────────────────────
+    function BaselineTable({ baselines, fhi }) {
+      const rows = [
+        { name:"FHI (Ours)", pred: fhi < 0.5, score: fhi.toFixed(3), novel:true },
+        { name:"LogProb Threshold", pred: baselines.logprob, score: baselines.logprob ? "FAIL":"PASS", novel:false },
+        { name:"Self-Consistency (N=3)", pred: baselines.selfConsistency > 0.5,
+          score: baselines.selfConsistency.toFixed(2), novel:false },
+      ];
+      return (
+        <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+          {rows.map(r => (
+            <div key={r.name} style={{ display:"flex", justifyContent:"space-between",
+              alignItems:"center", padding:"9px 12px", borderRadius:9,
+              background: r.novel ? "rgba(99,102,241,0.09)" : "#0f172a",
+              border:`1px solid ${r.novel ? "#6366f1" : "#1e293b"}` }}>
+              <span style={{ fontSize:12, color: r.novel ? "#a5b4fc" : "#94a3b8",
+                fontWeight: r.novel ? 700 : 400 }}>{r.name}</span>
+              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                <span style={{ fontSize:11, color:"#475569", fontFamily:"monospace" }}>{r.score}</span>
+                <span style={{ padding:"2px 9px", borderRadius:4, fontSize:11, fontWeight:700,
+                  background: r.pred ? "rgba(239,68,68,0.15)" : "rgba(34,197,94,0.15)",
+                  color: r.pred ? "#f87171" : "#4ade80" }}>
+                  {r.pred ? "HALLUCINATION" : "FAITHFUL"}
+                </span>
+              </div>
+            </div>
+          ))}
+          <div style={{ padding:"9px 12px", borderRadius:8, background:"#0f172a",
+            border:"1px dashed #1e293b", marginTop:2 }}>
+            <p style={{ fontSize:11, color:"#475569", margin:0 }}>
+              Missing for publication: <span style={{ color:"#a5b4fc" }}>SelfCheckGPT-NLI</span>,{" "}
+              <span style={{ color:"#a5b4fc" }}>INSIDE EigenScore</span>,{" "}
+              <span style={{ color:"#a5b4fc" }}>SAPLMA probe</span>
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── BenchmarkChart ───────────────────────────────────────────────────────
+    function BenchmarkChart() {
+      return (
+        <div>
+          <div style={{ fontSize:10, color:"#64748b", fontWeight:700,
+            letterSpacing:0.5, marginBottom:12, textTransform:"uppercase" }}>
+            Hallucination Detection — F1 vs AUC-ROC on HaluEval (placeholder)
+          </div>
+          {PAPER_COMPARISONS.map(p => (
+            <div key={p.name} style={{ marginBottom:10 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
+                <span style={{ fontSize:12, fontWeight: p.bold ? 700 : 400,
+                  color: p.bold ? "#e2e8f0" : "#64748b" }}>{p.name}</span>
+                <div style={{ display:"flex", gap:14 }}>
+                  <span style={{ fontSize:11, fontFamily:"monospace",
+                    color: p.bold ? "#a5b4fc" : "#475569" }}>F1: {p.f1.toFixed(3)}</span>
+                  <span style={{ fontSize:11, fontFamily:"monospace",
+                    color: p.bold ? "#a5b4fc" : "#475569" }}>AUC: {p.auc.toFixed(3)}</span>
+                </div>
+              </div>
+              <div style={{ height:5, background:"#1e293b", borderRadius:3, overflow:"hidden" }}>
+                <div style={{ height:"100%", width:`${p.f1*100}%`,
+                  background: p.bold
+                    ? "linear-gradient(90deg,#6366f1,#818cf8)"
+                    : "#334155",
+                  borderRadius:3, transition:"width 1s ease" }}/>
+              </div>
+            </div>
+          ))}
+          <p style={{ fontSize:10, color:"#334155", marginTop:8 }}>
+            ★ Replace with real test-split results after fixing data leakage (B3).
+          </p>
+        </div>
+      );
+    }
+
+    // ─── WeightSliders ────────────────────────────────────────────────────────
+    function WeightSliders({ weights, onChange }) {
+      const items = [
+        { key:"w1_aas", label:"AAS — Attribution Alignment" },
+        { key:"w2_cis", label:"CIS — Causal Impact" },
+        { key:"w3_ess", label:"ESS — Stability" },
+        { key:"w4_hcg", label:"HCG — Confidence Gap (−)" },
+      ];
+      const total = Object.values(weights).reduce((a,b)=>a+b,0);
+      return (
+        <div>
+          {items.map(({key,label}) => (
+            <div key={key} style={{ marginBottom:10 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
+                <span style={{ fontSize:11, color:"#94a3b8" }}>{label}</span>
+                <span style={{ fontSize:11, color:"#6366f1", fontFamily:"monospace",
+                  fontWeight:700 }}>{weights[key].toFixed(2)}</span>
+              </div>
+              <input type="range" min={0} max={0.5} step={0.01}
+                value={weights[key]}
+                onChange={e => onChange(key, parseFloat(e.target.value))}
+                style={{ width:"100%", accentColor:"#6366f1", cursor:"pointer" }}/>
+            </div>
+          ))}
+          <div style={{ fontSize:10, padding:"5px 8px", borderRadius:6,
+            background:"#0f172a", border:"1px solid #1e293b",
+            color: Math.abs(total-1) < 0.05 ? "#4ade80" : "#f59e0b" }}>
+            Weight sum: {total.toFixed(2)}
+            {Math.abs(total-1) < 0.05 ? " ✓" : " — adjust to ≈ 1.00"}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── RoadmapList ──────────────────────────────────────────────────────────
+    function RoadmapList() {
+      const items = [
+        { label:"Fix CIS: counterfactual explanation perturbation", sev:"🔴 Critical" },
+        { label:"Fix JS divergence: vocabulary-level KL divergence", sev:"🔴 Critical" },
+        { label:"Add train/val/test split — fix data leakage", sev:"🔴 Critical" },
+        { label:"Add McNemar + bootstrap CI significance tests", sev:"🔴 Critical" },
+        { label:"Fix AAS: subword reconstruction + gradient weighting", sev:"🟡 High" },
+        { label:"Add SelfCheckGPT-NLI, INSIDE baselines", sev:"🟡 High" },
+        { label:"ESS v2: NLI mutual entailment, N=10 runs", sev:"🟡 High" },
+        { label:"HCG v2: length-normalized perplexity gap", sev:"🟡 High" },
+        { label:"Fix IG: generation-token target, PAD baseline", sev:"🟠 Medium" },
+        { label:"Fix SHAP: enforce efficiency axiom", sev:"🟠 Medium" },
+      ];
+      return (
+        <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
+          {items.map((item, i) => (
+            <div key={i} style={{ display:"flex", justifyContent:"space-between",
+              alignItems:"center", padding:"7px 0",
+              borderBottom: i < items.length-1 ? "1px solid #0f172a" : "none" }}>
+              <span style={{ fontSize:11, color:"#94a3b8" }}>◻ {item.label}</span>
+              <span style={{ fontSize:10, color:"#475569", whiteSpace:"nowrap",
+                marginLeft:8 }}>{item.sev}</span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // ─── Main App ──────────────────────────────────────────────────────────────
+    function App() {
+      const [selIdx, setSelIdx] = useState(0);
+      const [tab, setTab] = useState("overview");
+      const [weights, setWeights] = useState({
+        w1_aas:0.30, w2_cis:0.35, w3_ess:0.20, w4_hcg:0.15
+      });
+
+      const s = DEMO_SAMPLES[selIdx];
+
+      const handleW = useCallback((key, val) => {
+        setWeights(prev => ({ ...prev, [key]: val }));
+      }, []);
+
+      const fhi = Math.max(0, Math.min(1,
+        weights.w1_aas*s.aas + weights.w2_cis*s.cis +
+        weights.w3_ess*s.ess - weights.w4_hcg*s.hcg
+      ));
+      const isHal = fhi < 0.5;
+
+      const tabs = [
+        {id:"overview", label:"Overview"},
+        {id:"attribution", label:"Attribution"},
+        {id:"perturbation", label:"Perturbation"},
+        {id:"baselines", label:"Baselines"},
+        {id:"benchmark", label:"Benchmark"},
+      ];
+
+      return (
+        <div style={{ minHeight:"100vh", background:"#020817", color:"#e2e8f0",
+          padding:"24px 16px" }}>
+
+          {/* ── Header ── */}
+          <div style={{ maxWidth:1100, margin:"0 auto 20px" }}>
+            <div style={{ display:"flex", alignItems:"flex-start",
+              justifyContent:"space-between", flexWrap:"wrap", gap:12 }}>
+              <div>
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}>
+                  <div style={{ width:8, height:8, borderRadius:"50%", background:"#6366f1",
+                    boxShadow:"0 0 10px #6366f1" }}/>
+                  <span style={{ fontSize:11, color:"#6366f1", fontWeight:700,
+                    letterSpacing:2, textTransform:"uppercase" }}>
+                    Research Demo · FHI v1
+                  </span>
+                </div>
+                <h1 style={{ margin:0, fontSize:22, fontWeight:800,
+                  color:"#f1f5f9", lineHeight:1.2 }}>
+                  Faithfulness-Hallucination Index
+                </h1>
+                <p style={{ margin:"6px 0 0", fontSize:12, color:"#64748b", maxWidth:540 }}>
+                  Multi-dimensional evaluation of LLM explanation faithfulness via
+                  attribution alignment and causal perturbation analysis
+                </p>
+              </div>
+              {/* Verdict Badge */}
+              <div style={{ padding:"10px 20px", borderRadius:12, textAlign:"center",
+                background: isHal ? "rgba(239,68,68,0.1)" : "rgba(34,197,94,0.1)",
+                border:`1px solid ${isHal ? "#ef4444" : "#22c55e"}` }}>
+                <div style={{ fontSize:11, fontWeight:700, letterSpacing:1,
+                  color: isHal ? "#f87171" : "#4ade80" }}>
+                  {isHal ? "⚠  HALLUCINATION DETECTED" : "✓  FAITHFUL"}
+                </div>
+                <div style={{ fontSize:32, fontWeight:900, fontFamily:"monospace",
+                  lineHeight:1.1, color: isHal ? "#ef4444" : "#22c55e" }}>
+                  {fhi.toFixed(3)}
+                </div>
+                <div style={{ fontSize:9, color:"#475569", marginTop:2 }}>
+                  FHI Score (τ = 0.50)
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Layout ── */}
+          <div style={{ maxWidth:1100, margin:"0 auto",
+            display:"grid", gridTemplateColumns:"210px 1fr", gap:14 }}>
+
+            {/* ── LEFT SIDEBAR ── */}
+            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+
+              {/* Sample selector */}
+              <div style={{ background:"#0a1628", border:"1px solid #1e293b",
+                borderRadius:12, padding:12 }}>
+                <div style={{ fontSize:9, color:"#475569", fontWeight:700,
+                  letterSpacing:1, textTransform:"uppercase", marginBottom:10 }}>
+                  Sample Examples
+                </div>
+                {DEMO_SAMPLES.map((sample, i) => (
+                  <button key={sample.id} onClick={() => setSelIdx(i)}
+                    style={{ width:"100%", padding:"7px 9px", borderRadius:8,
+                      border: selIdx===i ? "1px solid #6366f1" : "1px solid transparent",
+                      background: selIdx===i ? "rgba(99,102,241,0.1)" : "transparent",
+                      cursor:"pointer", textAlign:"left", marginBottom:3 }}>
+                    <div style={{ fontSize:11, fontWeight:700,
+                      color: selIdx===i ? "#a5b4fc" : "#64748b" }}>
+                      {sample.tag}
+                    </div>
+                    <div style={{ fontSize:10, color:"#334155", marginTop:1,
+                      overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                      maxWidth:180 }}>
+                      {sample.question}
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Gauge */}
+              <div style={{ background:"#0a1628", border:"1px solid #1e293b",
+                borderRadius:12, padding:14,
+                display:"flex", justifyContent:"center" }}>
+                <GaugeArc value={fhi} />
+              </div>
+
+              {/* Weights */}
+              <div style={{ background:"#0a1628", border:"1px solid #1e293b",
+                borderRadius:12, padding:14 }}>
+                <div style={{ fontSize:9, color:"#475569", fontWeight:700,
+                  letterSpacing:1, textTransform:"uppercase", marginBottom:10 }}>
+                  Adjust Weights
+                </div>
+                <WeightSliders weights={weights} onChange={handleW} />
+              </div>
+            </div>
+
+            {/* ── RIGHT MAIN ── */}
+            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+
+              {/* Sample info */}
+              <div style={{ background:"#0a1628", border:"1px solid #1e293b",
+                borderRadius:12, padding:16 }}>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
+                  <div>
+                    <div style={{ fontSize:9, color:"#475569", fontWeight:700,
+                      letterSpacing:1, marginBottom:6 }}>QUESTION</div>
+                    <p style={{ margin:0, fontSize:13, color:"#e2e8f0", lineHeight:1.5 }}>
+                      {s.question}
+                    </p>
+                  </div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                    <div style={{ background:"#0f172a", padding:"9px 10px",
+                      borderRadius:8, border:"1px solid #1e293b" }}>
+                      <div style={{ fontSize:9, color:"#475569", marginBottom:4 }}>MODEL ANSWER</div>
+                      <p style={{ margin:0, fontSize:12, color:"#e2e8f0", fontWeight:600 }}>{s.answer}</p>
+                    </div>
+                    <div style={{ background:"#0f172a", padding:"9px 10px", borderRadius:8,
+                      border:`1px solid ${s.isHallucination ? "#7f1d1d" : "#14532d"}` }}>
+                      <div style={{ fontSize:9, color:"#475569", marginBottom:4 }}>GOLD ANSWER</div>
+                      <p style={{ margin:0, fontSize:12, fontWeight:600,
+                        color: s.isHallucination ? "#f87171" : "#4ade80" }}>
+                        {s.goldAnswer}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ marginTop:12, paddingTop:12, borderTop:"1px solid #1e293b" }}>
+                  <div style={{ fontSize:9, color:"#475569", fontWeight:700,
+                    letterSpacing:1, marginBottom:6 }}>MODEL EXPLANATION</div>
+                  <p style={{ margin:0, fontSize:12, color:"#94a3b8",
+                    lineHeight:1.65, fontStyle:"italic" }}>
+                    "{s.explanation}"
+                  </p>
+                </div>
+              </div>
+
+              {/* Tabs */}
+              <div style={{ background:"#0a1628", border:"1px solid #1e293b",
+                borderRadius:12, overflow:"hidden" }}>
+
+                {/* Tab bar */}
+                <div style={{ display:"flex", borderBottom:"1px solid #1e293b",
+                  background:"#020817", overflowX:"auto" }}>
+                  {tabs.map(t => (
+                    <button key={t.id} onClick={() => setTab(t.id)}
+                      style={{ padding:"10px 18px", border:"none",
+                        background: tab===t.id ? "#0a1628" : "transparent",
+                        color: tab===t.id ? "#a5b4fc" : "#475569",
+                        fontWeight: tab===t.id ? 700 : 400, fontSize:12,
+                        cursor:"pointer", whiteSpace:"nowrap",
+                        borderBottom: tab===t.id ? "2px solid #6366f1" : "2px solid transparent",
+                        transition:"all 0.2s" }}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Tab body */}
+                <div style={{ padding:16 }}>
+
+                  {/* ── OVERVIEW ── */}
+                  {tab === "overview" && (
+                    <div>
+                      {/* Score cards */}
+                      <div style={{ display:"grid",
+                        gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
+                        {[
+                          {label:"AAS", val:s.aas, w:"0.30", desc:"Attribution Align", inv:false},
+                          {label:"CIS", val:s.cis, w:"0.35", desc:"Causal Impact", inv:false},
+                          {label:"ESS", val:s.ess, w:"0.20", desc:"Explanation Stability", inv:false},
+                          {label:"HCG", val:s.hcg, w:"−0.15", desc:"Confidence Gap", inv:true},
+                        ].map(m => (
+                          <div key={m.label} style={{ background:"#0f172a",
+                            borderRadius:10, padding:"12px 10px", textAlign:"center",
+                            border:`1px solid ${scoreColor(m.val,m.inv)}33` }}>
+                            <div style={{ fontSize:20, fontWeight:900, fontFamily:"monospace",
+                              color:scoreColor(m.val,m.inv) }}>
+                              {m.val.toFixed(3)}
+                            </div>
+                            <div style={{ fontSize:12, fontWeight:700, color:"#e2e8f0", marginTop:2 }}>
+                              {m.label}
+                            </div>
+                            <div style={{ fontSize:10, color:"#475569" }}>{m.desc}</div>
+                            <div style={{ fontSize:9, color:"#334155", marginTop:2 }}>w={m.w}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <MetricBar label="AAS — Attribution Alignment Score"
+                        value={s.aas} weight="0.30"
+                        tip="Jaccard overlap between explanation words and top-K attribution tokens. High = explanation aligns with model attention."/>
+                      <MetricBar label="CIS — Causal Impact Score"
+                        value={s.cis} weight="0.35"
+                        tip="Output shift when top-K tokens are masked from the input. High = those tokens causally drive the answer."/>
+                      <MetricBar label="ESS — Explanation Stability Score"
+                        value={s.ess} weight="0.20"
+                        tip="1 − mean pairwise semantic distance across N=3 explanation runs. High = stable, grounded reasoning."/>
+                      <MetricBar label="HCG — Hallucination Confidence Gap"
+                        value={s.hcg} weight="−0.15" inv={true}
+                        tip="max(0, confidence − token-F1). High = confidently wrong. SUBTRACTED from FHI — penalizes overconfidence."/>
+
+                      {/* Live formula */}
+                      <div style={{ marginTop:14, padding:"11px 14px",
+                        background:"#020817", borderRadius:10, border:"1px solid #1e293b",
+                        fontFamily:"monospace", fontSize:12, color:"#94a3b8",
+                        lineHeight:1.8 }}>
+                        <span style={{ color:"#6366f1", fontWeight:700 }}>FHI</span>
+                        {" = clip( "}
+                        <span style={{ color:"#6ee7b7" }}>{weights.w1_aas.toFixed(2)}</span>{"×"}
+                        <span style={{ color:"#4ade80" }}>{s.aas.toFixed(3)}</span>
+                        {" + "}
+                        <span style={{ color:"#6ee7b7" }}>{weights.w2_cis.toFixed(2)}</span>{"×"}
+                        <span style={{ color:"#4ade80" }}>{s.cis.toFixed(3)}</span>
+                        {" + "}
+                        <span style={{ color:"#6ee7b7" }}>{weights.w3_ess.toFixed(2)}</span>{"×"}
+                        <span style={{ color:"#4ade80" }}>{s.ess.toFixed(3)}</span>
+                        {" − "}
+                        <span style={{ color:"#fca5a5" }}>{weights.w4_hcg.toFixed(2)}</span>{"×"}
+                        <span style={{ color:"#fca5a5" }}>{s.hcg.toFixed(3)}</span>
+                        {" ) = "}
+                        <span style={{ fontWeight:900, fontSize:15,
+                          color: scoreColor(fhi) }}>
+                          {fhi.toFixed(3)}
+                        </span>
+                        <span style={{ marginLeft:12,
+                          color: isHal ? "#ef4444" : "#22c55e" }}>
+                          {isHal ? "< 0.50 → HALLUCINATION" : "≥ 0.50 → FAITHFUL"}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── ATTRIBUTION ── */}
+                  {tab === "attribution" && (
+                    <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+                      <TokenHeatmap tokens={s.tokens} />
+                      <div style={{ background:"#0f172a", borderRadius:10,
+                        padding:12, border:"1px solid #1e293b" }}>
+                        <div style={{ fontSize:10, color:"#64748b", fontWeight:700,
+                          textTransform:"uppercase", marginBottom:8 }}>
+                          Top-K Attributed Tokens
+                        </div>
+                        <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>
+                          {[...s.tokens].sort((a,b)=>b.score-a.score).slice(0,5)
+                            .map((t,i) => (
+                            <div key={i} style={{ display:"flex", alignItems:"center",
+                              gap:6, padding:"4px 11px", borderRadius:20,
+                              background:"rgba(99,102,241,0.1)",
+                              border:"1px solid #6366f1" }}>
+                              <span style={{ fontSize:10, color:"#6366f1",
+                                fontWeight:700 }}>#{i+1}</span>
+                              <span style={{ fontSize:13, color:"#e2e8f0",
+                                fontWeight:600 }}>{t.text}</span>
+                              <span style={{ fontSize:9, color:"#475569",
+                                fontFamily:"monospace" }}>{t.score.toFixed(3)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div style={{ background:"#0f172a", borderRadius:10,
+                        padding:12, border:"1px solid #1e293b" }}>
+                        <div style={{ fontSize:10, color:"#64748b", fontWeight:700,
+                          textTransform:"uppercase", marginBottom:6 }}>
+                          AAS Computation
+                        </div>
+                        <p style={{ fontSize:12, color:"#64748b", margin:0, lineHeight:1.7 }}>
+                          AAS = |explanation_words ∩ top_k_tokens| / |explanation_words ∪ top_k_tokens|
+                          {" = "}<span style={{ color:"#a5b4fc", fontFamily:"monospace",
+                            fontWeight:700 }}>{s.aas.toFixed(3)}</span>
+                        </p>
+                        <div style={{ marginTop:8, padding:"7px 10px",
+                          background:"rgba(245,158,11,0.06)", borderRadius:6,
+                          border:"1px solid rgba(245,158,11,0.15)" }}>
+                          <p style={{ fontSize:10, color:"#92400e", margin:0 }}>
+                            ⚠ v2 upgrade: Replace binary Jaccard with gradient-weighted GAA
+                            to preserve attribution magnitude. Fix BPE subword-to-word alignment.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── PERTURBATION ── */}
+                  {tab === "perturbation" && <PerturbationView p={s.perturbation} />}
+
+                  {/* ── BASELINES ── */}
+                  {tab === "baselines" && (
+                    <div>
+                      <div style={{ fontSize:10, color:"#64748b", fontWeight:700,
+                        textTransform:"uppercase", marginBottom:10 }}>
+                        Detection Result — This Sample
+                      </div>
+                      <BaselineTable baselines={s.baselines} fhi={fhi} />
+                    </div>
+                  )}
+
+                  {/* ── BENCHMARK ── */}
+                  {tab === "benchmark" && (
+                    <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+                      <BenchmarkChart />
+                      <div style={{ background:"#0f172a", borderRadius:10,
+                        padding:14, border:"1px solid #1e293b" }}>
+                        <div style={{ fontSize:10, color:"#64748b", fontWeight:700,
+                          textTransform:"uppercase", marginBottom:10 }}>
+                          FHI v2 Fix Roadmap
+                        </div>
+                        <RoadmapList />
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div style={{ maxWidth:1100, margin:"14px auto 0", textAlign:"center" }}>
+            <p style={{ fontSize:10, color:"#1e293b" }}>
+              FHI = w₁·AAS + w₂·CIS + w₃·ESS − w₄·HCG  ·  Threshold τ = 0.50  ·  Model: Gemma-2B-IT
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>

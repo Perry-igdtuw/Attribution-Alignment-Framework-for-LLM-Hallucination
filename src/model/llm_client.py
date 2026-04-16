@@ -126,13 +126,13 @@ class LLMClient:
         model_id = self.config["model"]["hf_model_id"]
         logger.info(f"Loading {model_id} via HuggingFace (device={self.device})...")
 
-        # Device map for memory-efficient loading
-        device_map = "auto" if self.device in ("cuda", "mps") else None
+        # device_map="auto" only for CUDA multi-GPU setups; MPS and CPU load directly
+        device_map = "auto" if self.device == "cuda" else None
 
         self._tokenizer = AutoTokenizer.from_pretrained(model_id)
         self._model = AutoModelForCausalLM.from_pretrained(
             model_id,
-            torch_dtype=torch.float32 if self.device == "cpu" else torch.float16,
+            torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
             device_map=device_map,
             attn_implementation="eager",  # Required for output_attentions=True (SDPA doesn't support it)
         )

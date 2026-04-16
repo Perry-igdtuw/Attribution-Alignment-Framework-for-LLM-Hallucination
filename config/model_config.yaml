@@ -17,10 +17,10 @@ model:
   top_p: 0.9
 
   # Set to "cuda", "mps" (Apple Silicon), or "cpu"
-  device: "cpu"
+  device: "mps"
 
   # Number of times to generate for ESS (stability)
-  n_stability_runs: 2
+  n_stability_runs: 3
 
   # Ollama server URL
   ollama_base_url: "http://localhost:11434"

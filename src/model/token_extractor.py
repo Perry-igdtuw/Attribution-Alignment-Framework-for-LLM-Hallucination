@@ -73,7 +73,7 @@ class TokenExtractor:
         self.tokenizer = tokenizer
         self.device = device
         self.model.eval()
-        self.model.to(device)
+        # Note: model placement is handled by LLMClient._load_huggingface()
 
     def extract(
         self,

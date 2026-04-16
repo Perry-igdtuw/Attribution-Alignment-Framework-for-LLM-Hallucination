@@ -7,3 +7,7 @@ results/
 .DS_Store
 STEPS/logs_fhi.txt
 *.log
+logs_*.txt
+DEEP_ANALYSIS.md
+FHI_V2_DESIGN.md
+RESEARCH_STATE.md
