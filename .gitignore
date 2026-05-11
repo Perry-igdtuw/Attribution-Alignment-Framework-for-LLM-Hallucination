@@ -1,14 +1,167 @@
-venv/
+# ==============================================================
+# FHI Research Project — .gitignore
+# "A Multi-Dimensional Evaluation of Explanation Faithfulness
+#  and Hallucination in LLMs using Attribution Alignment
+#  and Causal Perturbation Analysis"
+# ==============================================================
+
+# ──────────────────────────────────────────
+# Python
+# ──────────────────────────────────────────
 __pycache__/
-*.pyc
-.ipynb_checkpoints/
+*.py[cod]
+*$py.class
+*.pyo
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# ──────────────────────────────────────────
+# Virtual Environment
+# ──────────────────────────────────────────
+venv/
+env/
+.venv/
+.env/
+
+# ──────────────────────────────────────────
+# Secrets & Credentials  ← CRITICAL — never commit API keys
+# ──────────────────────────────────────────
+.env
+.env.*
+!.env.example
+secrets.yaml
+secrets.json
+*.pem
+*.key
+hf_token.txt
+openai_key.txt
+api_keys.txt
+
+# ──────────────────────────────────────────
+# Model Weights & Checkpoints  ← LARGE FILES
+# ──────────────────────────────────────────
+*.bin
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+*.h5
+*.onnx
+*.pkl
+models/
+checkpoints/
+model_cache/
+.cache/
+
+# ──────────────────────────────────────────
+# Experiment Results & Raw Data  ← GENERATED / LARGE
+# ──────────────────────────────────────────
+results/raw/
+results/processed/
+results/figures/
+results/mlruns/
 mlruns/
-results/
-paper/
-.DS_Store
-STEPS/logs_fhi.txt
+
+# ──────────────────────────────────────────
+# Downloaded Datasets  ← LARGE / RE-DOWNLOADABLE
+# ──────────────────────────────────────────
+data/raw/
+data/processed/
+data/cache/
+*.jsonl
+
+# ──────────────────────────────────────────
+# Jupyter Notebooks
+# ──────────────────────────────────────────
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
+# ──────────────────────────────────────────
+# Logs
+# ──────────────────────────────────────────
 *.log
+logs/
 logs_*.txt
+logs_fhi.txt
+logs_fhi_mps_200.txt
+
+# ──────────────────────────────────────────
+# Internal Research Notes (private, not for public repo)
+# ──────────────────────────────────────────
 DEEP_ANALYSIS.md
 FHI_V2_DESIGN.md
 RESEARCH_STATE.md
+STEPS/
+
+# ──────────────────────────────────────────
+# LaTeX Build Artifacts  ← track .tex SOURCE, ignore compiled output
+# ──────────────────────────────────────────
+paper/*.pdf
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.log
+paper/*.out
+paper/*.toc
+paper/*.lof
+paper/*.lot
+paper/*.fls
+paper/*.fdb_latexmk
+paper/*.synctex.gz
+paper/_minted*/
+paper/auto/
+
+# ──────────────────────────────────────────
+# OS & Editor Files
+# ──────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini
+
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+paper/
+paper_springer/
+notebook/
+tests/
+config/
+results/
+
+STEPS/ 
+FHI_V2_DESIGN.md
+RESEARCH_STATE.md
+DEEP_ANALYSIS.md
+RESEARCH_STATE.md
+EXPLANATION.md
+FHI_Springer_Conference_Paper.pdf
+FHI_Springer_Conference_Paper.docx
+FHI_Research_Presentation.pptx
+logs_fhi.txt
+MAJOR_PROJECT_REPORT.md
+# ──────────────────────────────────────────
+# WHAT IS TRACKED — safe to commit
+# ──────────────────────────────────────────
+# ✅ src/**/*.py              — all source code
+# ✅ paper/main.tex            — LaTeX paper root
+# ✅ paper/sections/*.tex      — paper sections
+# ✅ paper/references.bib      — bibliography
+# ✅ paper/figures/            — figures used in paper
+# ✅ config/*.yaml             — experiment configurations
+# ✅ experiments/run_pipeline.py
+# ✅ dashboard/                — web dashboard
+# ✅ tests/                    — test suite
+# ✅ notebooks/*.ipynb         — Jupyter notebooks
+# ✅ requirements.txt          — Python dependencies
+# ✅ README.md, EXPLANATION.md — documentation
