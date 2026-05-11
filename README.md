@@ -216,9 +216,6 @@ python3 -m http.server 8080 -d dashboard/
 
 ---
 
-## Paper
-
-The full IEEE-format paper is in [`paper/`](./paper/). It is written in LaTeX and structured as a conference submission. The compiled PDF is not tracked — build it locally with:
 
 ```bash
 cd paper
@@ -238,7 +235,7 @@ If you use this work, please cite:
   title   = {A Multi-Dimensional Evaluation of Explanation Faithfulness and
              Hallucination in Large Language Models using Attribution Alignment
              and Causal Perturbation Analysis},
-  author  = {Singh, Perry},
+  author  = {Parul Singh}
   year    = {2026},
   note    = {Final Year Research Paper}
 }
