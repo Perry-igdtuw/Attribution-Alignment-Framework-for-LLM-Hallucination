@@ -1,3 +1,0 @@
-FHI Pipeline | Backend: huggingface | Samples: 5
-Loading LLM...
-Processing halueval...                    0% -:--:--
